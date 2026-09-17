@@ -10,12 +10,46 @@ from selenium.webdriver import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.remote.webelement import WebElement
+from selenium.common.exceptions import (ElementClickInterceptedException,
+                                          ElementNotInteractableException,
+                                          StaleElementReferenceException)
 from typing import List
 from time import sleep
 import random
 import os
 import sys
 import configparser
+
+
+def click_when_interactable(by=None, value=None, element=None, timeout=20):
+    """等待并点击可交互元素；普通点击失败时使用 DOM 点击兜底。"""
+    if element is None:
+        def find_visible_enabled(current_driver):
+            for candidate in current_driver.find_elements(by, value):
+                try:
+                    if candidate.is_displayed() and candidate.is_enabled():
+                        return candidate
+                except StaleElementReferenceException:
+                    continue
+            return False
+
+        element = WebDriverWait(driver, timeout).until(find_visible_enabled)
+
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center', inline: 'nearest'});",
+        element,
+    )
+
+    try:
+        WebDriverWait(driver, timeout).until(
+            lambda _: element.is_displayed() and element.is_enabled()
+        )
+        element.click()
+    except (ElementClickInterceptedException, ElementNotInteractableException):
+        # 某些雨课堂页面保留了可见但 Selenium 判定不可交互的标签节点。
+        driver.execute_script("arguments[0].click();", element)
+
+    return element
 
 
 def create_config_template(config_path):
@@ -131,7 +165,11 @@ def ifVideo(div: WebElement):
         i_class = i.get_attribute('class')
         if 'icon--suo' in i_class:  # 锁的图标，表明视频未开放
             return False
-    
+
+        # 新版 www.yuketang.cn 将课程内容放进 iframe，但条目仍使用该图标。
+        if 'icon--shipin' in i_class:
+            return True
+
     if IS_COMMONUI:  # www.yuketang.cn，非grsbupt.yuketang.cn，属新版ui
         try:
             span = div.find_element(By.CSS_SELECTOR, 'span.leaf-flag')
@@ -211,12 +249,15 @@ def mute1video():
 
 def finish1video():
     if IS_COMMONUI:
-        # TODO: WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, "xxx")))
-        # then remove the sleep before calling function finish1video
-        # todo中改动较大需测试面较广，先用sleep代替
-        scoreList = driver.find_element(By.ID, 'tab-student_school_report')
-        scoreList.click()
-        allClasses = driver.find_elements(By.CLASS_NAME, 'study-unit')
+        iframe = WebDriverWait(driver, 20).until(
+            lambda current_driver: current_driver.find_element(
+                By.CSS_SELECTOR, 'iframe.tab-pane-content-iframe'
+            )
+        )
+        driver.switch_to.frame(iframe)
+        allClasses = WebDriverWait(driver, 20).until(
+            lambda current_driver: current_driver.find_elements(By.CLASS_NAME, 'leaf-detail')
+        )
     else:
         allClasses = driver.find_elements(By.CLASS_NAME, 'leaf-detail')
     print('正在寻找未完成的视频，请耐心等待')
@@ -225,11 +266,7 @@ def finish1video():
         return False
     video = allVideos[0]
     driver.execute_script('arguments[0].scrollIntoView(false);', video)
-    if IS_COMMONUI:
-        span = video.find_element(By.TAG_NAME, 'span')
-        span.click()
-    else:
-        video.click()
+    click_when_interactable(element=video)
     print('正在播放')
     driver.switch_to.window(driver.window_handles[-1])
     WebDriverWait(driver, 10).until(lambda x: driver.execute_script('video = document.querySelector("video"); console.log(video); return video;'))  # 这里即使2次sleep3s选中的video还是null

@@ -59,7 +59,7 @@ pip install selenium
 
 ### 三、设置刷课信息
 
-使用 `config.ini` 配置文件。首次运行脚本时会自动生成 `config.ini` ，也可以复制 `config.ini.example` 并重命名为 `config.ini`：
+使用 `config.ini` 配置文件。首次运行脚本时会自动生成 `config.ini`：
 
 ```ini
 [Settings]

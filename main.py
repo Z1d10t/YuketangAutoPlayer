@@ -15,6 +15,7 @@ from selenium.common.exceptions import (ElementClickInterceptedException,
                                           StaleElementReferenceException)
 from typing import List
 from time import sleep
+import time
 import random
 import os
 import sys
@@ -247,6 +248,44 @@ def mute1video():
     ActionChains(driver).click().perform()
 
 
+def switch_to_video_context(timeout=30):
+    """在当前页面及嵌套 iframe 中查找播放器。
+
+    找到后会把 Selenium 保持在 video 所在的页面层级，方便后续脚本直接操作。
+    """
+    deadline = time.time() + timeout
+    driver.implicitly_wait(0)
+
+    def search_current_context():
+        if driver.find_elements(By.TAG_NAME, 'video'):
+            return True
+
+        frames = driver.find_elements(By.TAG_NAME, 'iframe')
+        for frame in frames:
+            try:
+                driver.switch_to.frame(frame)
+                if search_current_context():
+                    return True
+                driver.switch_to.parent_frame()
+            except Exception:
+                # 页面加载时 iframe 可能被重新创建，返回顶层后下一轮重试。
+                driver.switch_to.default_content()
+                return False
+
+        return False
+
+    try:
+        while time.time() < deadline:
+            driver.switch_to.default_content()
+            if search_current_context():
+                return True
+            sleep(1)
+        driver.switch_to.default_content()
+        return False
+    finally:
+        driver.implicitly_wait(IMPLICITLY_WAIT)
+
+
 def finish1video():
     if IS_COMMONUI:
         iframe = WebDriverWait(driver, 20).until(
@@ -266,10 +305,37 @@ def finish1video():
         return False
     video = allVideos[0]
     driver.execute_script('arguments[0].scrollIntoView(false);', video)
+    original_window = driver.current_window_handle
+    windows_before_click = set(driver.window_handles)
     click_when_interactable(element=video)
     print('正在播放')
-    driver.switch_to.window(driver.window_handles[-1])
-    WebDriverWait(driver, 10).until(lambda x: driver.execute_script('video = document.querySelector("video"); console.log(video); return video;'))  # 这里即使2次sleep3s选中的video还是null
+    # 有的课程在新标签页打开，有的直接在当前页面或 iframe 内打开。
+    try:
+        WebDriverWait(driver, 5).until(
+            lambda current_driver: len(current_driver.window_handles) > len(windows_before_click)
+        )
+    except Exception:
+        pass
+
+    new_windows = [
+        handle for handle in driver.window_handles
+        if handle not in windows_before_click
+    ]
+    video_window = new_windows[-1] if new_windows else driver.current_window_handle
+    driver.switch_to.window(video_window)
+
+    if not switch_to_video_context(timeout=30):
+        screenshot_path = os.path.join(
+            os.path.dirname(os.path.abspath(sys.argv[0])),
+            'video_not_found.png',
+        )
+        driver.save_screenshot(screenshot_path)
+        raise RuntimeError(
+            f'未找到视频播放器，当前地址：{driver.current_url}；'
+            f'页面截图已保存到：{screenshot_path}'
+        )
+
+    driver.execute_script('window.video = document.querySelector("video");')
     driver.execute_script('videoPlay = setInterval(function() {if (video.paused) {video.play();}}, 200);')
     driver.execute_script('setTimeout(() => clearInterval(videoPlay), 5000)')
     driver.execute_script('addFinishMark = function() {finished = document.createElement("span"); finished.setAttribute("id", "LetMeFly_Finished"); document.body.appendChild(finished); console.log("Finished");}')
@@ -281,8 +347,13 @@ def finish1video():
         if driver.execute_script('return document.querySelector("#LetMeFly_Finished");'):
             print('finished, wait 5s')
             sleep(5)  # 再让它播5秒
-            driver.close()
-            driver.switch_to.window(driver.window_handles[-1])
+            if video_window != original_window:
+                driver.close()
+                driver.switch_to.window(original_window)
+            else:
+                # 当前标签页播放时不能关闭唯一窗口，重新进入课程目录即可。
+                driver.switch_to.default_content()
+                driver.get(COURSE_URL)
             return True
         else:
             print(f'正在播放视频 | not finished yet | 随机数: {random.random()}')

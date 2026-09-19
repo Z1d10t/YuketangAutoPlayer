@@ -66,7 +66,15 @@ pip install selenium
 headless = false
 course_url = 在此填写你的课程URL
 cookie = 在此填写你的sessionid
+csrftoken = 在此填写你的csrftoken
 implicitly_wait = 10
+answer_questions = true
+auto_submit_answers = true
+answer_min_confidence = 0.00
+opencode_command = opencode
+opencode_model =
+opencode_agent = compaction
+opencode_timeout = 120
 ```
 
 #### ① headless
@@ -75,7 +83,19 @@ implicitly_wait = 10
 
 若设置为 `true`，则不会弹出Chrome浏览器界面，但视频仍能正常刷取。
 
-#### ② course_url
+#### ② 自动处理普通习题
+
+- `answer_questions`：是否扫描课程目录中的未完成作业、练习、测评和习题。
+- `auto_submit_answers`：`true` 为填写后自动提交；`false` 为只填写并等待人工确认。
+- `answer_min_confidence`：当前设为 `0.00`，即只要 OpenCode 返回有效答案就填写并提交。
+- `opencode_command`：本机 OpenCode 命令，通常保持 `opencode`。
+- `opencode_model`：留空时使用 OpenCode 当前默认模型；也可填写 `provider/model`。
+- `opencode_agent`：默认使用禁用工具调用的 `compaction` agent，避免加载整个项目上下文。
+- `opencode_timeout`：单题等待 OpenCode 返回答案的最长秒数。
+
+程序直接从页面提取题干和选项文字，再通过本机已配置的 OpenCode 作答，不需要在本项目中保存模型 API Key。程序会处理课程学习内容中的单选、多选、判断、填空、简答和主观题；名称或类型明确为“考试/试卷”的内容始终跳过。完全无法读取题面或页面没有可填写控件时，会保存截图到 `question_failures`。
+
+#### ③ course_url
 
 你要刷的课的URL。
 
@@ -85,7 +105,7 @@ implicitly_wait = 10
 
 （注意是https格式的哦）
 
-#### ③ cookie
+#### ④ cookie
 
 **若你觉得COOKIE的获取比较麻烦，你可以选择[跳过这一步](#四开始刷课)并每次重新扫码登录。**扫码登录不支持HEADLESS模式。
 
@@ -94,6 +114,8 @@ COOKIE用来告诉雨课堂你是你。获取方式如下：
 登录（你们学校的）雨课堂，`打开开发者工具`（下图的步骤1，也可百度），依次点击"应用→存储→Cookie→ https&#58;&#47;&#47;xxx.yuketang... "，复制**sessionid**对应的值
 
 ![/how-to-get-cookie](img/how-to-get-cookie.jpg)
+
+`csrftoken` 与 `sessionid` 位于同一个雨课堂域名的 Cookie 列表中。自动提交答案时两者都需要配置；只配置 `sessionid` 可能可以正常读取课程，但提交时会显示“网络错误”。
 
 ### 四、开始刷课
 
